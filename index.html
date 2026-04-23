@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HR Breeding Dashboard — 2026-W17</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:#0d1b2a;color:#c8d8e8;font-family:'Segoe UI',Arial,sans-serif;font-size:14px;min-height:100vh}
+  .header{background:#0a1520;border-bottom:1px solid #1a3a5a;padding:18px 28px;display:flex;align-items:center;justify-content:space-between}
+  .header-left h1{font-size:20px;font-weight:600;color:#e8f4ff;letter-spacing:0.02em}
+  .header-left p{font-size:12px;color:#4a7a9a;margin-top:3px}
+  .week-badge{background:#0f2a40;border:1px solid #1a4a6a;border-radius:8px;padding:6px 14px;font-size:13px;color:#7eb8f7;font-weight:500}
+  .grid{display:grid;gap:14px;padding:20px 24px}
+  .metrics{grid-template-columns:repeat(4,1fr)}
+  .two-col{grid-template-columns:1fr 1fr}
+  .three-col{grid-template-columns:2fr 1fr}
+  .card{background:#0f2035;border:1px solid #1a3a55;border-radius:10px;padding:18px 20px}
+  .card-title{font-size:11px;font-weight:600;color:#4a7a9a;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:12px}
+  .metric-val{font-size:32px;font-weight:700;color:#e8f4ff;line-height:1}
+  .metric-label{font-size:12px;color:#4a7a9a;margin-top:5px}
+  .metric-sub{font-size:11px;color:#3a6a8a;margin-top:3px}
+  .target-card{background:#0a2040;border:2px solid #1a5a9a;border-radius:12px;padding:22px 24px;text-align:center}
+  .target-num{font-size:72px;font-weight:700;color:#5ba8ff;line-height:1}
+  .target-label{font-size:13px;color:#4a8abb;margin-top:8px}
+  .target-range{font-size:12px;color:#2a5a7a;margin-top:5px}
+  .buffer-pill{display:inline-block;background:#1a3a1a;color:#5a9a5a;font-size:11px;padding:3px 10px;border-radius:20px;margin-top:8px;border:1px solid #2a5a2a}
+  .accent-blue  .metric-val{color:#5ba8ff}
+  .accent-green .metric-val{color:#5ac87a}
+  .accent-amber .metric-val{color:#e8a030}
+  .accent-red   .metric-val{color:#e85858}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th{text-align:left;color:#3a6a8a;font-weight:500;font-size:11px;text-transform:uppercase;letter-spacing:0.06em;padding:6px 8px;border-bottom:1px solid #1a3a55}
+  td{padding:8px 8px;border-bottom:1px solid #122030;color:#b0c8d8}
+  tr:last-child td{border-bottom:none}
+  tr:hover td{background:#0a1828}
+  .params-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px 20px}
+  .param-row{display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid #122030;font-size:12px}
+  .param-name{color:#4a7a9a}
+  .param-val{color:#c8d8e8;font-weight:500}
+  .ci-row{display:flex;gap:10px;margin-top:10px;justify-content:center}
+  .ci-box{flex:1;background:#0a1828;border:1px solid #1a3a55;border-radius:8px;padding:10px;text-align:center}
+  .ci-box .val{font-size:22px;font-weight:600;color:#4a8abb}
+  .ci-box .lbl{font-size:11px;color:#3a5a7a;margin-top:3px}
+  .footer{text-align:center;padding:16px;color:#2a4a6a;font-size:11px;border-top:1px solid #122030;margin-top:8px}
+  canvas{max-height:220px}
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="header-left">
+    <h1>Homeland Ranch &mdash; Breeding Dashboard</h1>
+    <p>Generated Wednesday April 22, 2026  04:32 PM</p>
+  </div>
+  <div style="display:flex;align-items:center;gap:8px">
+    <a href="hr_assignments.html" style="color:#5ba8ff;text-decoration:none;font-size:12px;background:#0f2a40;border:1px solid #1a4a6a;border-radius:8px;padding:6px 12px;margin-right:10px">SIR1 Assignments &rarr;</a>
+    <div class="week-badge">2026-W17</div>
+  </div>
+</div>
+
+<div style="padding:20px 24px">
+
+  
+  <div class="card" style="grid-column:1/-1;margin-bottom:14px;border:1px solid #1a5a9a">
+    <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:14px">
+      <div style="flex:1;min-width:280px">
+        <div class="card-title" style="margin-bottom:6px">SIR1 Assignments (2026-W17)</div>
+        <div style="font-size:14px;color:#c8d8e8">
+          <span style="color:#5ba8ff;font-weight:700">261 SEXED</span>
+          &middot;
+          <span style="color:#888;font-weight:600">1,474 AN</span>
+          &middot;
+          <span style="color:#888">271 do-not-breed</span>
+           &middot; <span style='color:#e8a070'>306 non-Holstein -> AN</span>
+        </div>
+        <div style="font-size:11px;color:#4a7a9a;margin-top:4px">
+          9,180 cows in roster &middot;
+          130 of 434 TAI cohort carry SEXED
+        </div>
+        
+      </div>
+      <a href="hr_assignments.html" style="background:#1a5a9a;color:#e8f4ff;text-decoration:none;padding:10px 18px;border-radius:8px;font-size:13px;font-weight:500;white-space:nowrap">
+        Open assignment table &rarr;
+      </a>
+    </div>
+    <div style='display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:12px;padding-top:12px;border-top:1px solid #1a3a55'><div><div style='font-size:10px;color:#4a7a9a;text-transform:uppercase;letter-spacing:0.06em'>LACT 1</div><div style='font-size:20px;font-weight:600;color:#5ba8ff'>130 <span style='font-size:12px;color:#3a5a7a'>/ 130</span></div></div><div><div style='font-size:10px;color:#4a7a9a;text-transform:uppercase;letter-spacing:0.06em'>LACT 2</div><div style='font-size:20px;font-weight:600;color:#5ba8ff'>50 <span style='font-size:12px;color:#3a5a7a'>/ 50</span></div></div><div><div style='font-size:10px;color:#4a7a9a;text-transform:uppercase;letter-spacing:0.06em'>LACT 3+</div><div style='font-size:20px;font-weight:600;color:#5ba8ff'>20 <span style='font-size:12px;color:#3a5a7a'>/ 20</span></div></div></div>
+  </div>
+
+  <!-- Target hero -->
+  <div style="display:grid;grid-template-columns:auto 1fr;gap:14px;margin-bottom:14px;align-items:stretch">
+    <div class="target-card" style="min-width:220px">
+      <div style="font-size:11px;font-weight:600;color:#2a6aaa;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:10px">Friday cow target</div>
+      <div class="target-num">185</div>
+      <div class="target-label">cows to breed with sexed semen</div>
+      <div class="target-range">Base: 158 &nbsp;&bull;&nbsp; CI: 161&ndash;212 &nbsp;&bull;&nbsp; 17% buffer</div>
+      <div style="margin-top:10px;display:inline-block;background:#3a2a1a;color:#e8a070;font-size:11px;padding:4px 11px;border-radius:20px;border:1px solid #6a4a2a">PREGS MODE &nbsp;&bull;&nbsp; goal: 400 confirmed sexed pregs/mo</div>
+    </div>
+
+    <!-- Top metrics -->
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);grid-template-rows:1fr 1fr;gap:10px">
+      <div class="card accent-blue">
+        <div class="metric-val">7,743</div>
+        <div class="metric-label">Herd size</div>
+        <div class="metric-sub">35.0% annual cull</div>
+      </div>
+      <div class="card accent-blue">
+        <div class="metric-val">92.3</div>
+        <div class="metric-label">Confirmed pregs needed / week</div>
+        <div class="metric-sub">= 400/mo &divide; 4.33 weeks/mo</div>
+      </div>
+      <div class="card accent-green">
+        <div class="metric-val">72</div>
+        <div class="metric-label">Heifer sexed bred (7 days)</div>
+        <div class="metric-sub">34.6 preg contribution</div>
+      </div>
+      <div class="card accent-green">
+        <div class="metric-val">34.6</div>
+        <div class="metric-label">Heifer pregs (expected)</div>
+        <div class="metric-sub">72 bred &times; 48.0% CR</div>
+      </div>
+      <div class="card accent-amber">
+        <div class="metric-val">57.7</div>
+        <div class="metric-label">Cow pregs needed (this wk)</div>
+        <div class="metric-sub">weekly target 92.3 &minus; heifer pregs 34.6</div>
+      </div>
+      <div class="card">
+        <div class="metric-val" style="font-size:20px;color:#7eb8f7">48.0% / 36.7%</div>
+        <div class="metric-label">Heifer CR / Cow CR (effective)</div>
+        <div class="metric-sub">PREGS MODE — target 400/mo (92.3/wk) | SEXED.CSV 3yr avg (Apr, buf=17% from variance)<br><span style='color:#e8a070'>Cow: 39.0% observed &rarr; 36.7% (sexed -6.0%)</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Pregs forecast (pregs mode only) -->
+  
+        <div class="card" style="grid-column:1/-1">
+          <div class="card-title">Pregs forecast &mdash; projected confirmed sexed pregs by check month (~5-wk lag)</div>
+          <div style="display:grid;grid-template-columns:repeat(1,1fr);gap:10px">
+            
+              <div style="background:#0a1828;border:1px solid #1a3a55;border-radius:8px;padding:14px">
+                <div style="font-size:11px;color:#5ba8ff;text-transform:uppercase;letter-spacing:0.06em;font-weight:600;margin-bottom:6px">May 2026</div>
+                <div style="font-size:28px;font-weight:700;color:#5ba8ff;line-height:1">69</div>
+                <div style="font-size:11px;color:#4a7a9a;margin-top:4px">of 400 goal &middot; 17%</div>
+                <div style="background:#0d1b2a;border-radius:6px;height:8px;overflow:hidden;margin-top:8px">
+                  <div style="background:#5ba8ff;height:100%;width:17.28%"></div>
+                </div>
+                <div style="font-size:10px;color:#3a5a7a;margin-top:6px">Projected (more breedings to come)<br>2 bred week(s) feeding this month</div>
+              </div>
+          </div>
+          <div style="font-size:11px;color:#3a5a7a;margin-top:10px;line-height:1.5">
+            Each Friday's breedings get preg-checked ~5 weeks later. Numbers above are
+            projections from breedings already done, using observed CRs (cow CR adjusted for sexed penalty).
+            Months still receiving breedings will continue to grow as more Fridays log.
+          </div>
+        </div>
+
+  <!-- Charts row -->
+  <div style="display:grid;grid-template-columns:3fr 2fr;gap:14px;margin-bottom:14px;margin-top:14px">
+    <div class="card">
+      <div class="card-title">Friday target vs actual &mdash; 12 weeks</div>
+      <div style="position:relative;height:200px"><canvas id="trendChart"></canvas></div>
+    </div>
+    <div class="card">
+      <div class="card-title">Weekly sexed vs beef breedings</div>
+      <div style="position:relative;height:200px"><canvas id="mixChart"></canvas></div>
+    </div>
+  </div>
+
+  <!-- Sire table + cull stats + params -->
+  <div style="display:grid;grid-template-columns:2fr 1fr;gap:14px">
+    <div class="card">
+      <div class="card-title">This week &mdash; sire usage by lact group</div>
+      <table>
+        <thead><tr><th>Sire</th><th>Type</th><th>Lact group</th><th style="text-align:right">Bred</th></tr></thead>
+        <tbody><tr><td>CSEX=B</td><td><span style="background:#1a4a7a;color:#7eb8f7;font-size:11px;padding:2px 7px;border-radius:4px;font-weight:500">sexed</span></td><td>Heifer</td><td style='text-align:right;font-weight:500'>10</td></tr><tr><td>CSEX=S</td><td><span style="background:#1a4a7a;color:#7eb8f7;font-size:11px;padding:2px 7px;border-radius:4px;font-weight:500">sexed</span></td><td>Heifer</td><td style='text-align:right;font-weight:500'>62</td></tr></tbody>
+      </table>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:14px">
+      <div class="card">
+        <div class="card-title">Cull summary (rolling)</div>
+        <div class="params-grid">
+          <div class="param-row"><span class="param-name">Annual cull</span><span class="param-val">35.0%</span></div>
+          <div class="param-row"><span class="param-name">Early cull (DIM&lt;61)</span><span class="param-val">8.96%</span></div>
+          <div class="param-row"><span class="param-name">Total sold</span><span class="param-val">2,234</span></div>
+          <div class="param-row"><span class="param-name">Total died</span><span class="param-val">475</span></div>
+          <div class="param-row"><span class="param-name">Early sold</span><span class="param-val">486</span></div>
+          <div class="param-row"><span class="param-name">Early died</span><span class="param-val">204</span></div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-title">Loss factors used</div>
+        <div class="params-grid">
+          <div class="param-row"><span class="param-name">Sexed % female</span><span class="param-val">93%</span></div>
+          <div class="param-row"><span class="param-name">Cow survival</span><span class="param-val">78.5%</span></div>
+          <div class="param-row"><span class="param-name">Heifer survival</span><span class="param-val">83.8%</span></div>
+          <div class="param-row"><span class="param-name">Preg cull</span><span class="param-val">excluded (in cull rate)</span></div>
+          <div class="param-row"><span class="param-name">Extra heifer goal</span><span class="param-val">75/mo</span></div>
+          <div class="param-row"><span class="param-name">Sexed cow CR penalty</span><span class="param-val">-6%</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<div class="footer">
+  Homeland Ranch &bull; HR Breeding Tracker &bull; C:\Users\LO2-Feed\Dropbox\breeding\Calculator\hr_dashboard.html &bull; Updated Wednesday April 22, 2026  04:32 PM
+</div>
+
+<script>
+const gridColor  = 'rgba(255,255,255,0.06)';
+const tickColor  = '#3a6a8a';
+const baseOpts   = {
+  responsive:true, maintainAspectRatio:false,
+  plugins:{legend:{display:false}},
+  scales:{
+    x:{grid:{color:gridColor},ticks:{color:tickColor,font:{size:10},maxRotation:45}},
+    y:{grid:{color:gridColor},ticks:{color:tickColor,font:{size:10}}}
+  }
+};
+
+// Trend chart
+new Chart(document.getElementById('trendChart'), {
+  data:{
+    labels:["2026-W16", "2026-W17"],
+    datasets:[
+      {type:'line',label:'Target',data:[104, 185],
+        borderColor:'#5ba8ff',borderWidth:2,pointBackgroundColor:'#5ba8ff',
+        pointRadius:4,tension:0.3,fill:false},
+      {type:'line',label:'Actual',data:["null", "null"],
+        borderColor:'#5ac87a',borderWidth:2,pointBackgroundColor:'#5ac87a',
+        pointRadius:4,tension:0.3,fill:false,
+        spanGaps:false}
+    ]
+  },
+  options:{...baseOpts,
+    plugins:{
+      legend:{display:true,labels:{color:'#4a8abb',font:{size:11},
+        boxWidth:10,boxHeight:10,padding:14}},
+      tooltip:{mode:'index',intersect:false}
+    }
+  }
+});
+
+// Mix chart
+new Chart(document.getElementById('mixChart'), {
+  type:'bar',
+  data:{
+    labels:["2026-W16", "2026-W17"],
+    datasets:[
+      {label:'Sexed',data:[72, 72],backgroundColor:'rgba(91,168,255,0.75)',stack:'s'},
+      {label:'Beef', data:[0, 0], backgroundColor:'rgba(80,80,80,0.6)',  stack:'s'}
+    ]
+  },
+  options:{...baseOpts,
+    plugins:{
+      legend:{display:true,labels:{color:'#4a8abb',font:{size:11},
+        boxWidth:10,boxHeight:10,padding:14}},
+    },
+    scales:{
+      x:{stacked:true,grid:{color:gridColor},ticks:{color:tickColor,font:{size:10},maxRotation:45}},
+      y:{stacked:true,grid:{color:gridColor},ticks:{color:tickColor,font:{size:10}}}
+    }
+  }
+});
+</script>
+</body>
+</html>
