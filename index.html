@@ -6,7 +6,7 @@
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>HR Breeding Dashboard — 2026-W17</title>
+<title>HR Breeding Dashboard — 2026-W18</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
 <style>
   *{box-sizing:border-box;margin:0;padding:0}
@@ -55,11 +55,11 @@
 <div class="header">
   <div class="header-left">
     <h1>Homeland Ranch &mdash; Breeding Dashboard</h1>
-    <p>Generated Thursday April 23, 2026  07:08 PM</p>
+    <p>Generated Tuesday April 28, 2026  09:13 AM</p>
   </div>
   <div style="display:flex;align-items:center;gap:8px">
     <a href="hr_assignments.html" style="color:#5ba8ff;text-decoration:none;font-size:12px;background:#0f2a40;border:1px solid #1a4a6a;border-radius:8px;padding:6px 12px;margin-right:10px">SIR1 Assignments &rarr;</a>
-    <div class="week-badge">2026-W17</div>
+    <div class="week-badge">2026-W18</div>
   </div>
 </div>
 
@@ -69,7 +69,7 @@
   <div class="card" style="grid-column:1/-1;margin-bottom:14px;border:1px solid #1a5a9a">
     <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:14px">
       <div style="flex:1;min-width:280px">
-        <div class="card-title" style="margin-bottom:6px">SIR1 Assignments (2026-W17)</div>
+        <div class="card-title" style="margin-bottom:6px">SIR1 Assignments (2026-W18)</div>
         <div style="font-size:14px;color:#c8d8e8">
           <span style="color:#5ba8ff;font-weight:700">348 SEXED</span>
           &middot;
@@ -140,16 +140,25 @@
   
         <div class="card" style="grid-column:1/-1">
           <div class="card-title">Pregs forecast &mdash; projected confirmed sexed pregs by check month (~5-wk lag)</div>
-          <div style="display:grid;grid-template-columns:repeat(1,1fr);gap:10px">
+          <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:10px">
             
               <div style="background:#0a1828;border:1px solid #1a3a55;border-radius:8px;padding:14px">
-                <div style="font-size:11px;color:#5ba8ff;text-transform:uppercase;letter-spacing:0.06em;font-weight:600;margin-bottom:6px">May 2026</div>
-                <div style="font-size:28px;font-weight:700;color:#5ba8ff;line-height:1">81</div>
+                <div style="font-size:11px;color:#e8a030;text-transform:uppercase;letter-spacing:0.06em;font-weight:600;margin-bottom:6px">May 2026</div>
+                <div style="font-size:28px;font-weight:700;color:#e8a030;line-height:1">81</div>
                 <div style="font-size:11px;color:#4a7a9a;margin-top:4px">of 400 goal &middot; 20%</div>
                 <div style="background:#0d1b2a;border-radius:6px;height:8px;overflow:hidden;margin-top:8px">
-                  <div style="background:#5ba8ff;height:100%;width:20.16%"></div>
+                  <div style="background:#e8a030;height:100%;width:20.16%"></div>
                 </div>
-                <div style="font-size:10px;color:#3a5a7a;margin-top:6px">Projected (more breedings to come)<br>2 bred week(s) feeding this month</div>
+                <div style="font-size:10px;color:#3a5a7a;margin-top:6px">Partial (some weeks still in flight)<br>2 bred week(s) feeding this month</div>
+              </div>
+              <div style="background:#0a1828;border:1px solid #1a3a55;border-radius:8px;padding:14px">
+                <div style="font-size:11px;color:#5ba8ff;text-transform:uppercase;letter-spacing:0.06em;font-weight:600;margin-bottom:6px">Jun 2026</div>
+                <div style="font-size:28px;font-weight:700;color:#5ba8ff;line-height:1">46</div>
+                <div style="font-size:11px;color:#4a7a9a;margin-top:4px">of 400 goal &middot; 12%</div>
+                <div style="background:#0d1b2a;border-radius:6px;height:8px;overflow:hidden;margin-top:8px">
+                  <div style="background:#5ba8ff;height:100%;width:11.52%"></div>
+                </div>
+                <div style="font-size:10px;color:#3a5a7a;margin-top:6px">Projected (more breedings to come)<br>1 bred week(s) feeding this month</div>
               </div>
           </div>
           <div style="font-size:11px;color:#3a5a7a;margin-top:10px;line-height:1.5">
@@ -209,7 +218,7 @@
 </div>
 
 <div class="footer">
-  Homeland Ranch &bull; HR Breeding Tracker &bull; C:\Users\LO2-Feed\Dropbox\breeding\Calculator\hr_dashboard.html &bull; Updated Thursday April 23, 2026  07:08 PM
+  Homeland Ranch &bull; HR Breeding Tracker &bull; C:\Users\LO2-Feed\Dropbox\breeding\Calculator\hr_dashboard.html &bull; Updated Tuesday April 28, 2026  09:13 AM
 </div>
 
 <script>
@@ -227,12 +236,12 @@ const baseOpts   = {
 // Trend chart
 new Chart(document.getElementById('trendChart'), {
   data:{
-    labels:["2026-W16", "2026-W17"],
+    labels:["2026-W16", "2026-W17", "2026-W18"],
     datasets:[
-      {type:'line',label:'Target',data:[104, 148],
+      {type:'line',label:'Target',data:[104, 148, 148],
         borderColor:'#5ba8ff',borderWidth:2,pointBackgroundColor:'#5ba8ff',
         pointRadius:4,tension:0.3,fill:false},
-      {type:'line',label:'Actual',data:["null", "null"],
+      {type:'line',label:'Actual',data:["null", "null", "null"],
         borderColor:'#5ac87a',borderWidth:2,pointBackgroundColor:'#5ac87a',
         pointRadius:4,tension:0.3,fill:false,
         spanGaps:false}
@@ -251,10 +260,10 @@ new Chart(document.getElementById('trendChart'), {
 new Chart(document.getElementById('mixChart'), {
   type:'bar',
   data:{
-    labels:["2026-W16", "2026-W17"],
+    labels:["2026-W16", "2026-W17", "2026-W18"],
     datasets:[
-      {label:'Sexed',data:[72, 96],backgroundColor:'rgba(91,168,255,0.75)',stack:'s'},
-      {label:'Beef', data:[0, 0], backgroundColor:'rgba(80,80,80,0.6)',  stack:'s'}
+      {label:'Sexed',data:[72, 96, 96],backgroundColor:'rgba(91,168,255,0.75)',stack:'s'},
+      {label:'Beef', data:[0, 0, 0], backgroundColor:'rgba(80,80,80,0.6)',  stack:'s'}
     ]
   },
   options:{...baseOpts,
