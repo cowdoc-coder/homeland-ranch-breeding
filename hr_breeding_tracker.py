@@ -100,6 +100,7 @@ FARM = "Homeland Ranch"
 # ---------------------------------------------------------------------------
 DEFAULT_PARAMS = {
     "pregs_monthly_target": 380.0,      # was 360 -- user asked for 380
+    "pregs_monthly_ceiling": 400.0,     # NEW -- hard cap, well over this is bad for sexed semen
     "use_pregs_mode": 1.0,
     "sexed_hfr_cr_penalty_pct": 4.0,
     "sexed_cow_cr_penalty_pct": 6.0,
@@ -511,7 +512,7 @@ def recent_heifer_bred(con: sqlite3.Connection, weeks: int) -> list[int]:
 
 
 def monthly_pacing_adjustment(con: sqlite3.Connection, today: dt.date, monthly_target: float,
-                               current_iso_week: str, log) -> tuple[float, float, float, int]:
+                               current_iso_week: str, log) -> tuple[float, float, float, int, float]:
     """Self-correcting monthly pacing: compares expected pregs already
     generated this calendar month (from prior weeks' actual heifer/cow
     breeding counts x the CR used at the time) against a pro-rated share
@@ -544,7 +545,7 @@ def monthly_pacing_adjustment(con: sqlite3.Connection, today: dt.date, monthly_t
             f"(vs. {prorated_target:.1f} pro-rated target, {weeks_logged} prior wk(s) logged)")
         log(f"  Pacing adjustment:      {weekly_adjustment:+.1f} pregs/wk applied to remaining "
             f"{weeks_remaining:.1f} wk(s) of the month")
-    return weekly_adjustment, expected_so_far, prorated_target, weeks_logged
+    return weekly_adjustment, expected_so_far, prorated_target, weeks_logged, weeks_remaining
 
 
 # ---------------------------------------------------------------------------
@@ -557,9 +558,24 @@ def compute_friday_target(con, params, cull, sexed_hist, hfr_sexed_this_week, is
     monthly_target = params["pregs_monthly_target"]
     weekly_target_base = monthly_target / (365.25 / 12 / 7)
 
-    pacing_adj, expected_so_far, prorated_target, weeks_logged = monthly_pacing_adjustment(
+    pacing_adj, expected_so_far, prorated_target, weeks_logged, weeks_remaining = monthly_pacing_adjustment(
         con, today, monthly_target, iso_week, log)
-    weekly_target = weekly_target_base + pacing_adj
+    weekly_target_uncapped = weekly_target_base + pacing_adj
+
+    # HARD ceiling: no matter how far behind pace we are, never plan toward
+    # more than pregs_monthly_ceiling for the month -- overshooting by a lot
+    # is bad for sexed semen (cost, replacement-heifer surplus). Caps the
+    # ask down as expected_so_far approaches the ceiling; goes to 0 if
+    # already over it. The floor below scales with this automatically since
+    # it's a % of weekly_target, so it never fights the ceiling.
+    monthly_ceiling = params["pregs_monthly_ceiling"]
+    ceiling_headroom = monthly_ceiling - expected_so_far
+    max_weekly_from_ceiling = ceiling_headroom / weeks_remaining
+    weekly_target = max(min(weekly_target_uncapped, max_weekly_from_ceiling), 0.0)
+    ceiling_capped = weekly_target < weekly_target_uncapped - 0.05
+    if ceiling_capped:
+        log(f"  Ceiling cap applied:    {weekly_target_uncapped:.1f} -> {weekly_target:.1f} pregs/wk "
+            f"(monthly ceiling {monthly_ceiling:.0f}, headroom {ceiling_headroom:.1f} over {weeks_remaining:.1f} wk)")
 
     cow_pct, cow_npreg, cow_ntotal = three_year_cr(sexed_hist["cow"], today.year, month)
     hfr_pct, hfr_npreg, hfr_ntotal = three_year_cr(sexed_hist["hfr"], today.year, month)
@@ -592,9 +608,11 @@ def compute_friday_target(con, params, cull, sexed_hist, hfr_sexed_this_week, is
     log(f"  Cull rate:              {cull['annual_cull_pct']:.1f}%")
     log("")
     log("  *** PREGS MODE ***")
-    log(f"  Monthly pregs target:   {monthly_target:.0f} confirmed sexed pregs")
+    log(f"  Monthly pregs target:   {monthly_target:.0f} confirmed sexed pregs "
+        f"(hard ceiling {monthly_ceiling:.0f})")
     log(f"  Weekly pregs target:    {weekly_target_base:.1f} base"
-        + (f" {pacing_adj:+.1f} pacing = {weekly_target:.1f}" if weeks_logged else "")
+        + (f" {pacing_adj:+.1f} pacing" if weeks_logged else "")
+        + (f" -> capped {weekly_target:.1f}" if ceiling_capped else f" = {weekly_target:.1f}")
         + " confirmed sexed pregs/wk")
     log("")
     log(f"  Heifer sexed bred (this wk): {hfr_sexed_this_week}")
@@ -621,6 +639,7 @@ def compute_friday_target(con, params, cull, sexed_hist, hfr_sexed_this_week, is
         "hfr_pregs_expected": hfr_pregs_expected,
         "pacing_adj": pacing_adj, "expected_so_far": expected_so_far,
         "prorated_target": prorated_target, "weeks_logged": weeks_logged,
+        "ceiling_capped": ceiling_capped, "monthly_ceiling": monthly_ceiling,
     }
 
 
