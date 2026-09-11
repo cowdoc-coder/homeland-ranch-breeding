@@ -876,7 +876,11 @@ def load_config() -> configparser.ConfigParser:
     return cfg
 
 
-def send_sms(cfg, message: str, log):
+DASHBOARD_URL = "https://cowdoc-coder.github.io/homeland-ranch-breeding"
+DEFAULT_SMS_TEMPLATE = "Homeland Breeding: Friday target is {target} cows. Dashboard: {url}"
+
+
+def send_sms(cfg, friday_target: int, log):
     if not cfg.has_section("settings") or cfg.get("settings", "enable_sms", fallback="false").lower() != "true":
         log("  SMS disabled (hr_config.ini [settings] enable_sms=false) -- skipping")
         return
@@ -886,7 +890,8 @@ def send_sms(cfg, message: str, log):
     token = cfg.get("twilio", "auth_token")
     from_number = cfg.get("twilio", "from_number")
     for name, number in cfg.items("recipients"):
-        body = message
+        template = cfg.get("messages", name, fallback=DEFAULT_SMS_TEMPLATE)
+        body = template.format(target=friday_target, url=DASHBOARD_URL)
         data = urllib.parse.urlencode({"To": number, "From": from_number, "Body": body}).encode()
         req = urllib.request.Request(
             f"https://api.twilio.com/2010-04-01/Accounts/{sid}/Messages.json", data=data
@@ -1101,7 +1106,7 @@ def main():
     publish_to_github(cfg, summary, log)
 
     if today.weekday() == 3:  # Thursday
-        send_sms(cfg, f"Homeland Breeding: Friday target is {target['friday_target']} cows.", log)
+        send_sms(cfg, target["friday_target"], log)
     else:
         log(f"  Not Thursday ({today.strftime('%A')}) -- skipping SMS")
 
