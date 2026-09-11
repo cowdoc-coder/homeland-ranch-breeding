@@ -1,0 +1,4 @@
+# Real config has live Twilio credentials + phone numbers -- never commit it.
+# See hr_config.example.ini for the template.
+hr_config.ini
+Calculator/hr_config.ini

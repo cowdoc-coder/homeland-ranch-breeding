@@ -51,6 +51,7 @@ import configparser
 import csv
 import datetime as dt
 import io
+import os
 import re
 import shutil
 import sqlite3
@@ -940,7 +941,7 @@ def publish_to_github(cfg, summary: str, log):
         commit = subprocess.run(
             ["git", "-C", str(repo_dir), "commit", "-m", msg],
             capture_output=True, text=True, timeout=60,
-            env={**__import__("os").environ, **env_overrides},
+            env={**os.environ, **env_overrides},
         )
         if commit.returncode != 0:
             if "nothing to commit" in commit.stdout:
