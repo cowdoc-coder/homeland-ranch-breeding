@@ -59,7 +59,16 @@ import urllib.request
 from pathlib import Path
 from statistics import mean
 
-BASE_DIR = Path(__file__).resolve().parent          # .../breeding/Calculator
+# When frozen by PyInstaller (--onefile), __file__ resolves to the
+# transient _MEIxxxxx extraction dir, and the exe itself is deployed to
+# HRBreeding/ (separate from the data in Dropbox/breeding/Calculator) --
+# the scheduled task sets WorkingDirectory=Calculator specifically so the
+# frozen exe can find its files via cwd. Use that; fall back to the
+# script's own directory when run directly as a .py.
+if getattr(sys, "frozen", False):
+    BASE_DIR = Path.cwd().resolve()
+else:
+    BASE_DIR = Path(__file__).resolve().parent      # .../breeding/Calculator
 BREEDING_DIR = BASE_DIR.parent                       # .../breeding
 COWS_CSV = BREEDING_DIR / "COWS.CSV"
 BREED_CSV = BREEDING_DIR / "BREED.CSV"
