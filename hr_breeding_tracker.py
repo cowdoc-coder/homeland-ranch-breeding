@@ -510,15 +510,56 @@ def recent_heifer_bred(con: sqlite3.Connection, weeks: int) -> list[int]:
     return [r[0] for r in cur.fetchall()]
 
 
+def monthly_pacing_adjustment(con: sqlite3.Connection, today: dt.date, monthly_target: float,
+                               current_iso_week: str, log) -> tuple[float, float, float, int]:
+    """Self-correcting monthly pacing: compares expected pregs already
+    generated this calendar month (from prior weeks' actual heifer/cow
+    breeding counts x the CR used at the time) against a pro-rated share
+    of the monthly target, and returns an adjustment to apply to this
+    week's weekly target so the month trends back toward the goal instead
+    of each week being an isolated, disconnected guess."""
+    import calendar
+    days_in_month = calendar.monthrange(today.year, today.month)[1]
+    weeks_in_month = days_in_month / 7.0
+    week_of_month = today.day / 7.0
+
+    cur = con.execute(
+        "SELECT hfr_sexed_bred, hfr_cr_used, cow_sexed_actual, cow_cr_used FROM friday_targets "
+        "WHERE farm=? AND breed_month=? AND strftime('%Y', run_date)=? AND iso_week != ?",
+        (FARM, today.month, str(today.year), current_iso_week),
+    )
+    expected_so_far = 0.0
+    weeks_logged = 0
+    for hfr_bred, hfr_cr, cow_actual, cow_cr in cur.fetchall():
+        expected_so_far += (hfr_bred or 0) * (hfr_cr or 0) / 100.0 + (cow_actual or 0) * (cow_cr or 0) / 100.0
+        weeks_logged += 1
+
+    prorated_target = monthly_target * min(week_of_month / weeks_in_month, 1.0)
+    pace_gap = prorated_target - expected_so_far
+    weeks_remaining = max(weeks_in_month - week_of_month, 1.0)
+    weekly_adjustment = pace_gap / weeks_remaining
+
+    if weeks_logged:
+        log(f"  Monthly pacing check:   {expected_so_far:.1f} expected pregs so far this month "
+            f"(vs. {prorated_target:.1f} pro-rated target, {weeks_logged} prior wk(s) logged)")
+        log(f"  Pacing adjustment:      {weekly_adjustment:+.1f} pregs/wk applied to remaining "
+            f"{weeks_remaining:.1f} wk(s) of the month")
+    return weekly_adjustment, expected_so_far, prorated_target, weeks_logged
+
+
 # ---------------------------------------------------------------------------
 # Friday target calculation
 # ---------------------------------------------------------------------------
 
-def compute_friday_target(con, params, cull, sexed_hist, hfr_sexed_this_week, log):
+def compute_friday_target(con, params, cull, sexed_hist, hfr_sexed_this_week, iso_week, log):
     today = dt.date.today()
     month = today.month
     monthly_target = params["pregs_monthly_target"]
-    weekly_target = monthly_target / (365.25 / 12 / 7)
+    weekly_target_base = monthly_target / (365.25 / 12 / 7)
+
+    pacing_adj, expected_so_far, prorated_target, weeks_logged = monthly_pacing_adjustment(
+        con, today, monthly_target, iso_week, log)
+    weekly_target = weekly_target_base + pacing_adj
 
     cow_pct, cow_npreg, cow_ntotal = three_year_cr(sexed_hist["cow"], today.year, month)
     hfr_pct, hfr_npreg, hfr_ntotal = three_year_cr(sexed_hist["hfr"], today.year, month)
@@ -552,7 +593,9 @@ def compute_friday_target(con, params, cull, sexed_hist, hfr_sexed_this_week, lo
     log("")
     log("  *** PREGS MODE ***")
     log(f"  Monthly pregs target:   {monthly_target:.0f} confirmed sexed pregs")
-    log(f"  Weekly pregs target:    {weekly_target:.1f} confirmed sexed pregs/wk")
+    log(f"  Weekly pregs target:    {weekly_target_base:.1f} base"
+        + (f" {pacing_adj:+.1f} pacing = {weekly_target:.1f}" if weeks_logged else "")
+        + " confirmed sexed pregs/wk")
     log("")
     log(f"  Heifer sexed bred (this wk): {hfr_sexed_this_week}")
     log(f"  Heifer sexed bred ({int(params['heifer_smoothing_weeks'])}-wk avg): {hfr_bred_smoothed:.1f}  "
@@ -576,6 +619,8 @@ def compute_friday_target(con, params, cull, sexed_hist, hfr_sexed_this_week, lo
         "hfr_pct": hfr_pct, "cow_pct": cow_pct,
         "hfr_effective_cr": hfr_effective_cr, "cow_effective_cr": cow_effective_cr,
         "hfr_pregs_expected": hfr_pregs_expected,
+        "pacing_adj": pacing_adj, "expected_so_far": expected_so_far,
+        "prorated_target": prorated_target, "weeks_logged": weeks_logged,
     }
 
 
@@ -1297,7 +1342,7 @@ def main():
     log("-" * 58)
     log(f"  FRIDAY TARGET  --  {FARM}  --  {iso_week}")
     log("-" * 58)
-    target = compute_friday_target(con, params, cull, sexed_hist, hfr_sexed_wk, log)
+    target = compute_friday_target(con, params, cull, sexed_hist, hfr_sexed_wk, iso_week, log)
     log("-" * 58)
 
     run_date = today.isoformat()
