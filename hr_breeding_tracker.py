@@ -606,6 +606,7 @@ def classify_and_assign(cows: list[Cow], params: dict, log):
     dnb = 0
     nonh = 0
     beef_ct = 0
+    unknown_ct = 0
     hfr_sexed = 0
     hfr_beef = 0
     first_service_total = 0
@@ -691,9 +692,11 @@ def classify_and_assign(cows: list[Cow], params: dict, log):
                     prod_pool[lg].append(score)
                 else:
                     results[cow.id] = ("AN", f"L{lg}_T2_AN", 0, in_tai)
+                    beef_ct += 1
             continue
 
         results[cow.id] = (cow.sir1 or "-", "UNKNOWN", 0, in_tai)
+        unknown_ct += 1
 
     # --- low-production exclusion, computed per lactation group on the candidate pool ---
     lowprod_cut = {}
@@ -727,15 +730,19 @@ def classify_and_assign(cows: list[Cow], params: dict, log):
     for lg in (1, 2, 3):
         ranked_pool[lg].sort(key=lambda c: (c.tbrd_tier, -c.score, c.cow.id))
 
+    pool_size = {lg: len(group_candidates[lg]) for lg in (1, 2, 3)}
+
     return {
         "results": results,
         "ranked_pool": ranked_pool,
         "preserved": preserved, "dnb": dnb, "nonh": nonh,
+        "beef_ct": beef_ct, "unknown_ct": unknown_ct,
         "hfr_sexed": hfr_sexed, "hfr_beef": hfr_beef,
         "first_service_total": first_service_total,
         "tai_cohort_ct": tai_cohort_ct,
         "lowprod_excluded": lowprod_excluded,
         "lowprod_cut": lowprod_cut,
+        "pool_size": pool_size,
     }
 
 
@@ -782,7 +789,7 @@ def allocate_cow_quotas(ranked_pool: dict, cow_slot_budget: int, params: dict, l
         short = f"  (SHORT {q - a})" if a < q else ""
         log(f"    {label}: quota {q}, assigned {a}{short}")
 
-    return assigned
+    return assigned, {lg: round(quota[lg]) for lg in (1, 2, 3)}, realised_pct
 
 
 # ---------------------------------------------------------------------------
@@ -815,52 +822,341 @@ def write_db_snapshot(con, iso_week, run_date, cows, results):
         )
 
 
+def _tier_label(tier: str) -> str:
+    if tier in ("HFR", "HFR_BEEF"):
+        return "Heifer (LACT 0)"
+    m = re.match(r"L(\d)_T(\d)(_AN)?$", tier)
+    if m:
+        lg, t = m.group(1), m.group(2)
+        svc = {"0": "1st service", "1": "2nd service", "2": "3rd+ service", "3": "4th service"}.get(t, f"service {t}")
+        return f"LACT {lg} · {svc}"
+    m2 = re.match(r"L(\d)_LOWPROD$", tier)
+    if m2:
+        return f"LACT {m2.group(1)} · low producer"
+    return {"NONH": "Non-Holstein", "DNB": "Do not breed", "PRESERVED": "Historical (BRED/PREG)",
+            "UNKNOWN": "Unknown"}.get(tier, tier)
+
+
 def write_dashboard_html(context: dict):
-    total_sexed = context["hfr_sexed"] + sum(context["assigned"].values())
-    rows_html = "\n".join(
-        f"<tr><td>{c.id}</td><td>{sir1}</td></tr>"
-        for c in context["cows"][:5000]
-        for sir1 in [context["results"].get(c.id, (c.sir1,))[0]]
+    cows = context["cows"]
+    results = context["results"]
+    cls = context["classification"]
+    params = context["params"]
+    assigned = context["assigned"]
+    quota = context["quota"]
+    realised_pct = context["realised_pct"]
+    target = context["target"]
+
+    total_sexed = sum(1 for v in results.values() if v[0] == "SEXED")
+    total_an_new = sum(1 for v in results.values() if v[0] == "AN" and v[1] not in ("PRESERVED",))
+    hfr_sexed = cls["hfr_sexed"]
+    cow_sexed = sum(assigned.values())
+    tai_total = sum(1 for v in results.values() if v[3] == 1)
+    tai_sexed = sum(1 for v in results.values() if v[3] == 1 and v[0] == "SEXED")
+    tai_an = tai_total - tai_sexed
+
+    shortfalls = [(lg, label) for lg, label in ((1, "LACT 1"), (2, "LACT 2"), (3, "LACT 3+"))
+                  if assigned[lg] < quota[lg]]
+    shortfall_html = ""
+    if shortfalls:
+        parts = " &middot; ".join(f"{label} {assigned[lg]}/{quota[lg]} (short {quota[lg]-assigned[lg]})"
+                                    for lg, label in shortfalls)
+        shortfall_html = (f"<div style='background:#3a1a1a;border:1px solid #6a2a2a;border-radius:8px;"
+                           f"padding:12px 14px;margin-bottom:14px;color:#e88080'><b>Quota shortfall:</b> {parts}. "
+                           f"Eligible cow pool too small for the quota(s) this week.</div>")
+
+    # --- LACT quota card with per-service breakdown ---
+    lact_card_rows = []
+    for lg, label in ((1, "LACT 1"), (2, "LACT 2"), (3, "LACT 3+")):
+        q, a = quota[lg], assigned[lg]
+        short_html = f"<span style='color:#e88080'> (short {q-a})</span>" if a < q else ""
+        lact_card_rows.append(
+            f"<div class='param-row' style='margin-top:8px;border-bottom:1px solid #1a3a55'>"
+            f"<span class='param-name' style='color:#7eb8f7;font-weight:600'>{label} &mdash; quota {q} "
+            f"({realised_pct[lg]}%)</span>"
+            f"<span class='param-val' style='color:#7eb8f7;font-weight:600'>{a} SEXED{short_html}</span></div>"
+        )
+        for t, svc in ((0, "1st"), (1, "2nd"), (2, "3rd+")):
+            sexed_ct = sum(1 for v in results.values() if v[1] == f"L{lg}_T{t}")
+            an_ct = sum(1 for v in results.values() if v[1] == f"L{lg}_T{t}_AN")
+            if sexed_ct or an_ct:
+                lact_card_rows.append(
+                    f"<div class='param-row' style='padding-left:12px'>"
+                    f"<span class='param-name'>&nbsp;&nbsp;{label} · {svc} service</span>"
+                    f"<span class='param-val'>{sexed_ct} SEXED "
+                    f"<span style='color:#6a4a2a'>(+{an_ct} -&gt; AN)</span></span></div>"
+                )
+
+    lowprod_rows = "".join(
+        f"<div class='param-row'><span class='param-name'>LACT {lg if lg<3 else '3+'} · bottom "
+        f"{int(params[f'prod_exclude_l{lg}_pct'])}% (score &lt; {cls['lowprod_cut'][lg]:.1f})</span>"
+        f"<span class='param-val'>{cls['lowprod_excluded'][lg]} excluded "
+        f"<span style='color:#3a5a7a;font-size:10px'>(of {cls['pool_size'][lg]:,})</span></span></div>"
+        for lg in (1, 2, 3)
     )
+
+    other_rows = (
+        f"<div class='param-row'><span class='param-name'>Non-Holstein (CBRD != H)</span>"
+        f"<span class='param-val'>{cls['nonh']}</span></div>"
+        f"<div class='param-row'><span class='param-name'>Beef (TBRD too high)</span>"
+        f"<span class='param-val'>{cls['beef_ct']}</span></div>"
+        f"<div class='param-row'><span class='param-name'>Do not breed</span>"
+        f"<span class='param-val'>{cls['dnb']:,}</span></div>"
+        f"<div class='param-row'><span class='param-name'>Historical (BRED / PREG)</span>"
+        f"<span class='param-val'>{cls['preserved']:,}</span></div>"
+        f"<div class='param-row'><span class='param-name'>Unknown RPRO</span>"
+        f"<span class='param-val'>{cls['unknown_ct']}</span></div>"
+    )
+
+    eligible_ct = sum(1 for v in results.values() if v[1] == "HFR" or v[1] == "HFR_BEEF" or v[1].startswith("L"))
+    cow_slots_used = sum(assigned.values())
+    run_info_rows = (
+        f"<div class='param-row'><span class='param-name'>Roster rows</span><span class='param-val'>{len(cows):,}</span></div>"
+        f"<div class='param-row'><span class='param-name'>Eligible (assigned)</span><span class='param-val'>{eligible_ct:,}</span></div>"
+        f"<div class='param-row'><span class='param-name'>Historical (preserved)</span><span class='param-val'>{cls['preserved']:,}</span></div>"
+        f"<div class='param-row'><span class='param-name'>Do not breed</span><span class='param-val'>{cls['dnb']:,}</span></div>"
+        f"<div class='param-row'><span class='param-name'>Cow slots used</span><span class='param-val'>{cow_slots_used} / {context['cow_slot_budget']}</span></div>"
+        f"<div class='param-row'><span class='param-name'>Cow slots unused</span><span class='param-val'>{context['cow_slot_budget']-cow_slots_used}</span></div>"
+    )
+
+    # --- eligible cows detail table ---
+    def esc(s):
+        return str(s).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("'", "&#39;")
+
+    eligible_rows = []
+    for cow in cows:
+        sir1, tier, mandatory, in_tai = results.get(cow.id, (cow.sir1, "", 0, 0))
+        if not (tier == "HFR" or tier == "HFR_BEEF" or tier.startswith("L")):
+            continue
+        eligible_rows.append((cow, sir1, tier, in_tai))
+    eligible_rows.sort(key=lambda r: r[0].id)
+
+    badge = {"SEXED": "background:#1a4a7a;color:#7eb8f7", "AN": "background:#1a2a3a;color:#8aa8c0"}
+    tr_html = []
+    for cow, sir1, tier, in_tai in eligible_rows:
+        score, _ = cow.milk_score()
+        rpro_disp = esc(cow.rpro) + (" <span style='color:#e8a030;font-size:9px'>TAI</span>" if in_tai else "")
+        style = badge.get(sir1, "background:#3a1a1a;color:#e88080")
+        tr_html.append(
+            f"<tr data-sir='{sir1}' data-tier='{esc(tier)}' data-lact='{cow.lact}' data-cbrd='{esc(cow.cbrd)}'>"
+            f"<td>{esc(cow.id)}</td>"
+            f"<td><span style=\"{style};font-size:11px;padding:2px 8px;border-radius:4px;font-weight:600\">{sir1}</span></td>"
+            f"<td>{esc(_tier_label(tier))}</td>"
+            f"<td style='text-align:right'>{cow.lact}</td>"
+            f"<td>{rpro_disp}</td>"
+            f"<td style='text-align:center'>{esc(cow.cbrd)}</td>"
+            f"<td style='text-align:right'>{cow.dim}</td>"
+            f"<td style='text-align:right'>{cow.tbrd}</td>"
+            f"<td style='text-align:right'>{cow.ptbrd}</td>"
+            f"<td style='text-align:right'>{cow.dssyd}</td>"
+            f"<td style='text-align:right'>{score:.0f}</td>"
+            f"<td style='text-align:right;color:#5a7a9a'>{cow.peak:.0f}</td>"
+            f"<td style='text-align:right;color:#5a7a9a'>{cow.w4mk:.0f}</td>"
+            f"<td style='text-align:right;color:#5a7a9a'>{cow.w8mk:.0f}</td>"
+            f"<td style='color:#555;font-size:11px'>{esc(cow.sir1)}</td></tr>"
+        )
+    rows_html = "\n".join(tr_html)
+
     html = f"""<!DOCTYPE html>
 <html lang="en"><head><meta charset="UTF-8">
 <title>HR SIR1 Assignments -- {context['iso_week']}</title>
 <style>
- *{{box-sizing:border-box;margin:0;padding:0}}
- body{{background:#0d1b2a;color:#c8d8e8;font-family:'Segoe UI',Arial,sans-serif;font-size:13px}}
- .header{{background:#0a1520;padding:16px 28px}}
- .header h1{{font-size:18px;color:#e8f4ff}}
- .container{{padding:20px 24px}}
- .card{{background:#0f2035;border:1px solid #1a3a55;border-radius:10px;padding:16px 20px;margin-bottom:14px}}
- .metric-val{{font-size:26px;font-weight:700;color:#5ba8ff}}
- .metric-label{{font-size:11px;color:#4a7a9a;margin-top:4px}}
- .four-col{{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:14px}}
- table{{width:100%;border-collapse:collapse;font-size:12px}}
- th{{text-align:left;color:#3a6a8a;padding:8px;border-bottom:1px solid #1a3a55;position:sticky;top:0;background:#0a1828}}
- td{{padding:6px 8px;border-bottom:1px solid #122030}}
- .table-wrap{{max-height:70vh;overflow:auto;border:1px solid #1a3a55;border-radius:8px}}
- .note{{background:#132a1a;border:1px solid #2a5a3a;border-radius:8px;padding:10px 14px;margin-bottom:14px;color:#8ae8a0;font-size:12px}}
-</style></head>
+  *{{box-sizing:border-box;margin:0;padding:0}}
+  body{{background:#0d1b2a;color:#c8d8e8;font-family:'Segoe UI',Arial,sans-serif;font-size:13px;min-height:100vh}}
+  .header{{background:#0a1520;border-bottom:1px solid #1a3a5a;padding:16px 28px;display:flex;align-items:center;justify-content:space-between}}
+  .header-left h1{{font-size:18px;font-weight:600;color:#e8f4ff;letter-spacing:0.02em}}
+  .header-left p{{font-size:12px;color:#4a7a9a;margin-top:3px}}
+  .week-badge{{background:#0f2a40;border:1px solid #1a4a6a;border-radius:8px;padding:6px 14px;font-size:13px;color:#7eb8f7;font-weight:500}}
+  .container{{padding:20px 24px}}
+  .card{{background:#0f2035;border:1px solid #1a3a55;border-radius:10px;padding:16px 20px;margin-bottom:14px}}
+  .card-title{{font-size:11px;font-weight:600;color:#4a7a9a;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:12px}}
+  .metric-val{{font-size:26px;font-weight:700;color:#e8f4ff;line-height:1}}
+  .metric-label{{font-size:11px;color:#4a7a9a;margin-top:4px}}
+  .param-row{{display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid #122030;font-size:12px}}
+  .param-name{{color:#4a7a9a}}
+  .param-val{{color:#c8d8e8;font-weight:500}}
+  table{{width:100%;border-collapse:collapse;font-size:12px}}
+  th{{text-align:left;color:#3a6a8a;font-weight:500;font-size:10px;text-transform:uppercase;letter-spacing:0.06em;padding:8px;border-bottom:1px solid #1a3a55;cursor:pointer;user-select:none;background:#0a1828;position:sticky;top:0}}
+  th:hover{{color:#7eb8f7}}
+  th.sort-asc::after{{content:' ▲';color:#5ba8ff}}
+  th.sort-desc::after{{content:' ▼';color:#5ba8ff}}
+  td{{padding:6px 8px;border-bottom:1px solid #122030;color:#b0c8d8}}
+  tr:hover td{{background:#0a1828}}
+  .filter-bar{{display:flex;gap:10px;margin-bottom:12px;align-items:center;flex-wrap:wrap}}
+  .filter-bar input, .filter-bar select{{background:#0a1828;border:1px solid #1a3a55;color:#c8d8e8;padding:6px 10px;border-radius:6px;font-size:12px;font-family:inherit}}
+  .count-pill{{background:#0a1828;border:1px solid #1a3a55;border-radius:20px;padding:4px 12px;font-size:11px;color:#4a8abb;margin-left:auto}}
+  .table-wrap{{max-height:70vh;overflow:auto;border:1px solid #1a3a55;border-radius:8px}}
+  .two-col{{display:grid;grid-template-columns:1fr 1fr;gap:14px}}
+  .four-col{{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:14px}}
+  @media (max-width:900px){{.two-col,.four-col{{grid-template-columns:1fr}}}}
+</style>
+</head>
 <body>
-<div class="header"><h1>Homeland Ranch -- SIR1 Assignments</h1>
-<p style="color:#4a7a9a;font-size:12px">Generated {context['generated']} &middot; Week {context['iso_week']}</p></div>
+<div class="header">
+  <div class="header-left">
+    <h1>Homeland Ranch &mdash; SIR1 Assignments</h1>
+    <p>Generated {context['generated']}</p>
+  </div>
+  <div class="week-badge">{context['iso_week']}</div>
+</div>
 <div class="container">
-<div class="note">Rebuilt {dt.date.today()}: proportional LACT quotas with spillover (fixes chronic LACT2/LACT3+ shortfall),
-3-week heifer smoothing + floor (fixes zeroed cow quota), deterministic ranking (fixes run-to-run inconsistency),
-monthly target set to {int(context['params']['pregs_monthly_target'])}.</div>
-<div class="four-col">
-  <div class="card"><div class="metric-val">{total_sexed}</div><div class="metric-label">Total SEXED assigned</div></div>
-  <div class="card"><div class="metric-val" style="color:#5ac87a">{context['cow_slot_budget']}</div><div class="metric-label">Cow slot budget (target {context['target']['friday_target']} + buffer {int(context['params']['sexed_assign_buffer'])})</div></div>
-  <div class="card"><div class="metric-val" style="color:#e8a030">{context['tai_cohort_ct']}</div><div class="metric-label">This week's TAI cohort (DSSYD {int(context['params']['tai_dssyd_lo'])}-{int(context['params']['tai_dssyd_hi'])})</div></div>
-  <div class="card"><div class="metric-val" style="font-size:20px">{context['assigned'][1]}/{context['assigned'][2]}/{context['assigned'][3]}</div><div class="metric-label">SEXED by LACT (1/2/3+)</div></div>
+{shortfall_html}
+  <div class="four-col">
+    <div class="card">
+      <div class="metric-val" style="color:#5ba8ff">{total_sexed}</div>
+      <div class="metric-label">Total SEXED assigned</div>
+      <div style="font-size:10px;color:#3a5a7a;margin-top:4px">{hfr_sexed} heifers + {cow_sexed} cows</div>
+    </div>
+    <div class="card">
+      <div class="metric-val" style="color:#5ac87a">{context['cow_slot_budget']}</div>
+      <div class="metric-label">Cow slot budget</div>
+      <div style="font-size:10px;color:#3a5a7a;margin-top:4px">Target {target['friday_target']} + fixed buffer {int(params['sexed_assign_buffer'])}</div>
+    </div>
+    <div class="card">
+      <div class="metric-val" style="color:#e8a030">{tai_total}</div>
+      <div class="metric-label">This week's TAI cohort (DSSYD {int(params['tai_dssyd_lo'])}-{int(params['tai_dssyd_hi'])})</div>
+      <div style="font-size:10px;color:#3a5a7a;margin-top:4px">{tai_sexed} SEXED &middot; {tai_an} AN</div>
+    </div>
+    <div class="card">
+      <div class="metric-val" style="color:#5ba8ff;font-size:20px">{assigned[1]}/{assigned[2]}/{assigned[3]}</div>
+      <div class="metric-label">SEXED by LACT (1 / 2 / 3+)</div>
+      <div style="font-size:10px;color:#3a5a7a;margin-top:4px">Quotas: {quota[1]} / {quota[2]} / {quota[3]} ({realised_pct[1]}/{realised_pct[2]}/{realised_pct[3]}%)</div>
+    </div>
+  </div>
+
+  <div class="two-col">
+    <div class="card">
+      <div class="card-title">Heifer pool (always SEXED, TBRD &lt; {int(params['max_sexed_svc_hfr'])})</div>
+      <div class='param-row'><span class='param-name'>Heifer (LACT 0)</span><span class='param-val'>{hfr_sexed}</span></div>
+      <div class="card-title" style="margin-top:14px">Cow SEXED assignment by LACT group (quotas + spillover)</div>
+      {''.join(lact_card_rows)}
+    </div>
+    <div class="card">
+      <div class="card-title">Low-production exclusions (composite milk score)</div>
+      <div style="font-size:10px;color:#3a5a7a;margin-bottom:10px">Score = mean of non-zero [WMLK1, PEAK, W4MK, W8MK, W12MK, W24MK]</div>
+      {lowprod_rows}
+      <div class="card-title" style="margin-top:14px">Other assignments</div>
+      {other_rows}
+      <div class="card-title" style="margin-top:14px">Run info</div>
+      {run_info_rows}
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">Eligible cows &mdash; SIR1 assignment detail</div>
+    <div class="filter-bar">
+      <input id="search" type="text" placeholder="Search ID..." style="width:140px">
+      <select id="sir-filter">
+        <option value="">All SIR1</option>
+        <option value="SEXED">SEXED only</option>
+        <option value="AN">AN only</option>
+      </select>
+      <select id="lact-filter">
+        <option value="">All LACT</option>
+        <option value="0">LACT 0</option>
+        <option value="1">LACT 1</option>
+        <option value="2">LACT 2</option>
+        <option value="3">LACT 3+</option>
+      </select>
+      <label style="display:flex;align-items:center;gap:6px;color:#4a7a9a;font-size:12px">
+        <input id="tai-only" type="checkbox"> TAI cohort only
+      </label>
+      <span id="row-count" class="count-pill">{len(eligible_rows)} rows</span>
+    </div>
+    <div class="table-wrap">
+      <table id="assignments-table">
+        <thead>
+          <tr>
+            <th data-col="id" data-type="str">ID</th>
+            <th data-col="sir" data-type="str">SIR1</th>
+            <th data-col="tier" data-type="str">Tier</th>
+            <th data-col="lact" data-type="num" style="text-align:right">LACT</th>
+            <th data-col="rpro" data-type="str">RPRO</th>
+            <th data-col="cbrd" data-type="str" style="text-align:center">CBRD</th>
+            <th data-col="dim" data-type="num" style="text-align:right">DIM</th>
+            <th data-col="tbrd" data-type="num" style="text-align:right">TBRD</th>
+            <th data-col="ptbrd" data-type="num" style="text-align:right">PTBRD</th>
+            <th data-col="dssyd" data-type="num" style="text-align:right">DSSYD</th>
+            <th data-col="score" data-type="num" style="text-align:right" title="Composite milk score">Score</th>
+            <th data-col="peak" data-type="num" style="text-align:right">PEAK</th>
+            <th data-col="w4mk" data-type="num" style="text-align:right">W4MK</th>
+            <th data-col="w8mk" data-type="num" style="text-align:right">W8MK</th>
+            <th data-col="prior" data-type="str">Prior SIR1</th>
+          </tr>
+        </thead>
+        <tbody id="tbody">
+{rows_html}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  <div style="text-align:center;padding:16px;color:#2a4a6a;font-size:11px">Homeland Ranch Breeding Calculator</div>
 </div>
-<div class="card">
-  <div style="margin-bottom:8px;color:#4a7a9a;font-size:11px;text-transform:uppercase">Assignments ({len(context['cows'])} cows)</div>
-  <div class="table-wrap"><table><thead><tr><th>ID</th><th>SIR1</th></tr></thead><tbody>
-  {rows_html}
-  </tbody></table></div>
-</div>
-</div>
+<script>
+const tbody    = document.getElementById('tbody');
+const allRows  = Array.from(tbody.querySelectorAll('tr'));
+const searchEl = document.getElementById('search');
+const sirEl    = document.getElementById('sir-filter');
+const lactEl   = document.getElementById('lact-filter');
+const taiEl    = document.getElementById('tai-only');
+const countEl  = document.getElementById('row-count');
+
+function applyFilters() {{
+  const q = searchEl.value.trim().toLowerCase();
+  const sf = sirEl.value;
+  const lf = lactEl.value;
+  const tf = taiEl.checked;
+  let shown = 0;
+  for (const tr of allRows) {{
+    const id    = tr.cells[0].textContent.toLowerCase();
+    const sir   = tr.dataset.sir;
+    const lact  = tr.dataset.lact;
+    const tai   = tr.innerHTML.indexOf('>TAI<') > -1;
+    let ok = true;
+    if (q   && !id.includes(q))  ok = false;
+    if (sf  && sir !== sf)       ok = false;
+    if (lf) {{
+      if (lf === '3' && parseInt(lact) < 3) ok = false;
+      else if (lf !== '3' && lact !== lf)   ok = false;
+    }}
+    if (tf  && !tai)             ok = false;
+    tr.style.display = ok ? '' : 'none';
+    if (ok) shown++;
+  }}
+  countEl.textContent = shown.toLocaleString() + ' rows';
+}}
+searchEl.addEventListener('input',  applyFilters);
+sirEl   .addEventListener('change', applyFilters);
+lactEl  .addEventListener('change', applyFilters);
+taiEl   .addEventListener('change', applyFilters);
+
+const table = document.getElementById('assignments-table');
+const ths   = table.querySelectorAll('th');
+let sortState = {{ col: null, dir: 1 }};
+
+ths.forEach((th, idx) => {{
+  th.addEventListener('click', () => {{
+    const type = th.dataset.type;
+    const dir  = (sortState.col === idx && sortState.dir === 1) ? -1 : 1;
+    sortState  = {{ col: idx, dir }};
+    ths.forEach(x => x.classList.remove('sort-asc','sort-desc'));
+    th.classList.add(dir === 1 ? 'sort-asc' : 'sort-desc');
+
+    const rows = Array.from(tbody.querySelectorAll('tr'));
+    rows.sort((a, b) => {{
+      const av = a.cells[idx].textContent.trim();
+      const bv = b.cells[idx].textContent.trim();
+      if (type === 'num') {{
+        const an = parseFloat(av) || 0;
+        const bn = parseFloat(bv) || 0;
+        return (an - bn) * dir;
+      }}
+      return av.localeCompare(bv) * dir;
+    }});
+    rows.forEach(r => tbody.appendChild(r));
+  }});
+}});
+</script>
 </body></html>"""
     ASSIGNMENTS_HTML.write_text(html, encoding="utf-8")
     DASHBOARD_HTML.write_text(html, encoding="utf-8")
@@ -1021,7 +1317,7 @@ def main():
     ranked_pool = classification["ranked_pool"]
 
     cow_slot_budget = target["friday_target"] + int(params["sexed_assign_buffer"])
-    assigned = allocate_cow_quotas(ranked_pool, cow_slot_budget, params, log)
+    assigned, quota, realised_pct = allocate_cow_quotas(ranked_pool, cow_slot_budget, params, log)
 
     for lg in (1, 2, 3):
         for i, cand in enumerate(ranked_pool[lg]):
@@ -1097,8 +1393,8 @@ def main():
     write_dashboard_html({
         "iso_week": iso_week, "generated": dt.datetime.now().strftime("%A %B %d, %Y %I:%M %p"),
         "cows": cows, "results": results, "params": params, "target": target,
-        "cow_slot_budget": cow_slot_budget, "assigned": assigned,
-        "hfr_sexed": classification["hfr_sexed"], "tai_cohort_ct": classification["tai_cohort_ct"],
+        "cow_slot_budget": cow_slot_budget, "assigned": assigned, "quota": quota,
+        "realised_pct": realised_pct, "classification": classification,
     })
     log(f"Assignments dashboard written: {ASSIGNMENTS_HTML}")
     log(f"Dashboard written: {DASHBOARD_HTML}")
