@@ -52,7 +52,9 @@ import csv
 import datetime as dt
 import io
 import re
+import shutil
 import sqlite3
+import subprocess
 import sys
 import urllib.parse
 import urllib.request
@@ -82,6 +84,10 @@ CONFIG_PATH = BASE_DIR / "hr_config.ini"
 RUN_LOG_PATH = BASE_DIR / "hr_run_log.txt"
 ASSIGNMENTS_HTML = BASE_DIR / "hr_assignments.html"
 DASHBOARD_HTML = BASE_DIR / "hr_dashboard.html"
+
+# Local clone that mirrors github.com/cowdoc-coder/homeland-ranch-breeding
+# and backs the GitHub Pages site. Overridable via hr_config.ini [github] repo_path.
+DEFAULT_GIT_REPO_DIR = Path(r"C:\GitHub\homeland-ranch-breeding")
 
 FARM = "Homeland Ranch"
 
@@ -894,6 +900,60 @@ def send_sms(cfg, message: str, log):
             log(f"  SMS to {name} FAILED: {e}")
 
 
+def _run_git(repo_dir: Path, args: list[str]) -> subprocess.CompletedProcess:
+    return subprocess.run(
+        ["git", "-C", str(repo_dir)] + args,
+        capture_output=True, text=True, timeout=60,
+    )
+
+
+def publish_to_github(cfg, summary: str, log):
+    """Mirrors the old bot's behavior: push the fresh dashboard HTML to the
+    repo backing https://cowdoc-coder.github.io/homeland-ranch-breeding."""
+    if not cfg.has_section("settings") or cfg.get("settings", "enable_github_publish", fallback="false").lower() != "true":
+        log("  GitHub publish disabled (hr_config.ini [settings] enable_github_publish=false) -- skipping")
+        return
+
+    repo_dir = Path(cfg.get("github", "repo_path", fallback=str(DEFAULT_GIT_REPO_DIR)))
+    if not (repo_dir / ".git").exists():
+        log(f"  GitHub publish FAILED: no git repo at {repo_dir}")
+        return
+
+    try:
+        shutil.copy(DASHBOARD_HTML, repo_dir / "hr_dashboard.html")
+        shutil.copy(DASHBOARD_HTML, repo_dir / "index.html")
+        shutil.copy(ASSIGNMENTS_HTML, repo_dir / "hr_assignments.html")
+
+        add = _run_git(repo_dir, ["add", "hr_dashboard.html", "index.html", "hr_assignments.html"])
+        if add.returncode != 0:
+            log(f"  GitHub publish FAILED (git add): {add.stderr.strip()}")
+            return
+
+        msg = f"HR Breeding update {dt.datetime.now().strftime('%Y-%m-%d %H:%M')} | {summary}"
+        env_overrides = {"GIT_AUTHOR_NAME": "HR Breeding Bot", "GIT_AUTHOR_EMAIL": "noreply@homeland-ranch.local",
+                          "GIT_COMMITTER_NAME": "HR Breeding Bot", "GIT_COMMITTER_EMAIL": "noreply@homeland-ranch.local"}
+        commit = subprocess.run(
+            ["git", "-C", str(repo_dir), "commit", "-m", msg],
+            capture_output=True, text=True, timeout=60,
+            env={**__import__("os").environ, **env_overrides},
+        )
+        if commit.returncode != 0:
+            if "nothing to commit" in commit.stdout:
+                log("  GitHub publish: no changes to publish (dashboard identical to last run)")
+                return
+            log(f"  GitHub publish FAILED (git commit): {commit.stdout.strip()} {commit.stderr.strip()}")
+            return
+
+        push = _run_git(repo_dir, ["push", "origin", "HEAD"])
+        if push.returncode != 0:
+            log(f"  GitHub publish FAILED (git push): {push.stderr.strip()}")
+            return
+
+        log("  GitHub publish: deployed to https://cowdoc-coder.github.io/homeland-ranch-breeding")
+    except Exception as e:
+        log(f"  GitHub publish FAILED: {e}")
+
+
 def main():
     log_lines = []
 
@@ -1036,6 +1096,9 @@ def main():
     })
     log(f"Assignments dashboard written: {ASSIGNMENTS_HTML}")
     log(f"Dashboard written: {DASHBOARD_HTML}")
+
+    summary = f"{total_sexed} SEXED / {total_an} AN / {total_dnb} DNB"
+    publish_to_github(cfg, summary, log)
 
     if today.weekday() == 3:  # Thursday
         send_sms(cfg, f"Homeland Breeding: Friday target is {target['friday_target']} cows.", log)
