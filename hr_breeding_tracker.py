@@ -118,9 +118,7 @@ DEFAULT_PARAMS = {
     "prod_sparse_pct_l2": 10.0,
     "prod_sparse_pct_l3": 10.0,
     "elite_milk_pct": 25.0,
-    "allow_lact4_t0_elite": 1.0,
-    "allow_tbrd3_elite": 1.0,
-    "max_sexed_svc_hfr": 4.0,
+    "max_sexed_svc_hfr": 5.0,
     "fresh_prestage_dim": 50.0,
     "sexed_assign_buffer": 15.0,
     "first_service_dim_lo": 70.0,
@@ -734,29 +732,20 @@ def classify_and_assign(cows: list[Cow], params: dict, log):
             if in_tai:
                 tai_cohort_ct += 1
 
-            if cow.tbrd <= 1:
-                tier_n = cow.tbrd  # 0 or 1
-                elite_thresh_key = f"prod_exclude_l{lg}_pct" if lg <= 2 else "prod_exclude_l3_pct"
-                sparse = n_readings <= params["prod_sparse_n_max"]
-                pct_key = f"prod_sparse_pct_l{lg}" if sparse and lg <= 3 else elite_thresh_key
-                cand = Candidate(cow, lg, tier_n, score, n_readings, elite=False)
+            if cow.tbrd <= 3:
+                # TBRD 0-3 all compete for the LACT-group's sexed quota.
+                # 0/1 rank first; 2/3 only outrank the quota cutoff if
+                # they're an elite producer (top elite_milk_pct% of the
+                # group) -- otherwise they're fill-only, used only if 0/1
+                # (plus elite 2/3) can't cover the quota. Elite status is
+                # resolved after this loop once the group's production
+                # distribution is known (see elite_cut below).
+                cand = Candidate(cow, lg, cow.tbrd, score, n_readings, elite=False)
                 group_candidates[lg].append(cand)
                 prod_pool[lg].append(score)
             else:
-                # TBRD >= 2: normally AN, narrow elite exception at TBRD==3
-                score, n_readings = cow.milk_score()
-                elite = False
-                if cow.tbrd == 3 and params["allow_tbrd3_elite"]:
-                    elite = True
-                elif lg == 3 and cow.tbrd == 0 and params["allow_lact4_t0_elite"]:
-                    elite = True
-                if elite:
-                    cand = Candidate(cow, lg, cow.tbrd, score, n_readings, elite=True)
-                    group_candidates[lg].append(cand)
-                    prod_pool[lg].append(score)
-                else:
-                    results[cow.id] = ("AN", f"L{lg}_T2_AN", 0, in_tai)
-                    beef_ct += 1
+                results[cow.id] = ("AN", f"L{lg}_T{cow.tbrd}_AN", 0, in_tai)
+                beef_ct += 1
             continue
 
         results[cow.id] = (cow.sir1 or "-", "UNKNOWN", 0, in_tai)
@@ -764,17 +753,27 @@ def classify_and_assign(cows: list[Cow], params: dict, log):
 
     # --- low-production exclusion, computed per lactation group on the candidate pool ---
     lowprod_cut = {}
+    elite_cut = {}
     for lg in (1, 2, 3):
         scores = sorted(s for s in prod_pool[lg] if s > 0)
         pct = params[f"prod_exclude_l{lg}_pct"] / 100.0
         idx = int(len(scores) * pct)
         lowprod_cut[lg] = scores[idx] if scores and idx < len(scores) else 0.0
 
+        elite_pct = params["elite_milk_pct"] / 100.0
+        elite_idx = int(len(scores) * (1 - elite_pct))
+        elite_cut[lg] = scores[elite_idx] if scores and 0 <= elite_idx < len(scores) else float("inf")
+
     lowprod_excluded = {1: 0, 2: 0, 3: 0}
     ranked_pool: dict[int, list[Candidate]] = {1: [], 2: [], 3: []}
 
     for lg in (1, 2, 3):
         for cand in group_candidates[lg]:
+            # TBRD 2/3 cows in the top elite_milk_pct% of the group's
+            # production distribution jump the fill-only queue.
+            if cand.tbrd_tier >= 2 and cand.score and cand.score >= elite_cut[lg]:
+                cand.elite = True
+
             sparse = cand.n_readings <= params["prod_sparse_n_max"]
             cutoff = lowprod_cut[lg]
             sparse_pct = params[f"prod_sparse_pct_l{lg}"] / 100.0
@@ -790,9 +789,13 @@ def classify_and_assign(cows: list[Cow], params: dict, log):
             else:
                 ranked_pool[lg].append(cand)
 
-    # sort deterministically: T0 first (near-mandatory), then score desc, then ID asc as tiebreak
+    # sort deterministically: TBRD 0/1 always first; within the TBRD 2/3
+    # remainder, elite producers first, then plain TBRD 2/3 as fill-only;
+    # ties broken by TBRD asc, score desc, then ID asc.
     for lg in (1, 2, 3):
-        ranked_pool[lg].sort(key=lambda c: (c.tbrd_tier, -c.score, c.cow.id))
+        ranked_pool[lg].sort(
+            key=lambda c: (0 if c.tbrd_tier <= 1 else 1, 0 if c.elite else 1, c.tbrd_tier, -c.score, c.cow.id)
+        )
 
     pool_size = {lg: len(group_candidates[lg]) for lg in (1, 2, 3)}
 
@@ -940,7 +943,7 @@ def write_dashboard_html(context: dict):
             f"({realised_pct[lg]}%)</span>"
             f"<span class='param-val' style='color:#7eb8f7;font-weight:600'>{a} SEXED{short_html}</span></div>"
         )
-        for t, svc in ((0, "1st"), (1, "2nd"), (2, "3rd+")):
+        for t, svc in ((0, "1st"), (1, "2nd"), (2, "3rd"), (3, "4th")):
             sexed_ct = sum(1 for v in results.values() if v[1] == f"L{lg}_T{t}")
             an_ct = sum(1 for v in results.values() if v[1] == f"L{lg}_T{t}_AN")
             if sexed_ct or an_ct:
@@ -987,10 +990,13 @@ def write_dashboard_html(context: dict):
     def esc(s):
         return str(s).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("'", "&#39;")
 
+    # LACT 0 (heifer) sexed/beef is decided automatically by the TBRD cutoff
+    # and doesn't need review here -- this table is for LACT>0 breeding
+    # decisions only.
     eligible_rows = []
     for cow in cows:
         sir1, tier, mandatory, in_tai = results.get(cow.id, (cow.sir1, "", 0, 0))
-        if not (tier == "HFR" or tier == "HFR_BEEF" or tier.startswith("L")):
+        if not tier.startswith("L"):
             continue
         eligible_rows.append((cow, sir1, tier, in_tai))
     eligible_rows.sort(key=lambda r: r[0].id)
@@ -1117,7 +1123,6 @@ def write_dashboard_html(context: dict):
       </select>
       <select id="lact-filter">
         <option value="">All LACT</option>
-        <option value="0">LACT 0</option>
         <option value="1">LACT 1</option>
         <option value="2">LACT 2</option>
         <option value="3">LACT 3+</option>
@@ -1238,10 +1243,16 @@ def load_config() -> configparser.ConfigParser:
 
 
 DASHBOARD_URL = "https://cowdoc-coder.github.io/homeland-ranch-breeding"
-DEFAULT_SMS_TEMPLATE = "Homeland Breeding: Friday target is {target} cows. Dashboard: {url}"
+DEFAULT_SMS_TEMPLATE = "Homeland Breeding: {target} TAI cows scheduled for tomorrow. Dashboard: {url}"
 
 
-def send_sms(cfg, friday_target: int, log):
+def send_sms(cfg, tai_cohort_ct: int, log):
+    """{target} is the TAI cohort -- cows on a fixed synch schedule that will
+    be bred tomorrow regardless of heat detection. This is deliberately NOT
+    the weekly pace-based cow quota (which can run 150-200+): that quota
+    covers non-TAI cows spread across the whole coming week as they cycle
+    into heat, not a single day's ask, and texting it as "tomorrow" reads
+    as a wildly inflated number."""
     if not cfg.has_section("settings") or cfg.get("settings", "enable_sms", fallback="false").lower() != "true":
         log("  SMS disabled (hr_config.ini [settings] enable_sms=false) -- skipping")
         return
@@ -1252,7 +1263,7 @@ def send_sms(cfg, friday_target: int, log):
     from_number = cfg.get("twilio", "from_number")
     for name, number in cfg.items("recipients"):
         template = cfg.get("messages", name, fallback=DEFAULT_SMS_TEMPLATE)
-        body = template.format(target=friday_target, url=DASHBOARD_URL)
+        body = template.format(target=tai_cohort_ct, url=DASHBOARD_URL)
         data = urllib.parse.urlencode({"To": number, "From": from_number, "Body": body}).encode()
         req = urllib.request.Request(
             f"https://api.twilio.com/2010-04-01/Accounts/{sid}/Messages.json", data=data
@@ -1467,7 +1478,7 @@ def main():
     publish_to_github(cfg, summary, log)
 
     if today.weekday() == 3:  # Thursday
-        send_sms(cfg, target["friday_target"], log)
+        send_sms(cfg, classification["tai_cohort_ct"], log)
     else:
         log(f"  Not Thursday ({today.strftime('%A')}) -- skipping SMS")
 
